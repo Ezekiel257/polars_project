@@ -154,7 +154,7 @@ print(joined_df)
 ```python
 # Create an SQLContext from the "loan_risk" LazyFrame.
 result = pl.SQLContext(frame=loan_risk).execute(
-    "SELECT funded_amnt FROM frame WHERE funded_amnt >= 3000
+    "SELECT funded_amnt FROM frame WHERE funded_amnt >= 3000"
 ).collect()
 
 print(result)
