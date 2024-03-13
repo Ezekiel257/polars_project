@@ -3,6 +3,16 @@
 Polars is a [DataFrame](https://en.wikipedia.org/wiki/Dataframe "A DataFrame is a 2-dimensional data structure that is useful for data manipulation and analysis.") implementation that focuses on maximizing performance
 and utilizing your machine's resources efficiently. It has an intuitive & expressive API (Syntax) that'll empower you to write code which is both readable and performant.
 
+## Key features
+- **Fast**: Written from scratch in Rust, designed close to the machine and without external dependencies.
+- **I/O**: First class support for all common data storage layers: local, cloud storage & databases.
+- **Intuitive API**: Write your queries the way they were intended. Polars, internally, will determine the most efficient way to execute using its query optimizer.
+- **Out of Core**: The streaming API allows you to process your results without requiring all your data to be in memory at the same time
+- **Parallel**: Utilises the power of your machine by dividing the workload among the available CPU cores without any additional configuration.
+- **Vectorized Query Engine**: Using [Apache Arrow](https://en.wikipedia.org/wiki/Apache_Arrow), a columnar data format, to process your queries in a vectorized manner and SIMD to optimize CPU usage.
+
+
+
 It supports a wide range of data formats (read/write operations) including:
 - Text: CSV & JSON
 - Binary: [Parquet](https://en.wikipedia.org/wiki/Apache_Parquet "Parquet is a column-oriented data storage format"), [AVRO](https://en.wikipedia.org/wiki/Apache_Avro "Avro is a row-based data serialization format/system"), Excel etc.
@@ -14,13 +24,10 @@ It supports a wide range of data formats (read/write operations) including:
 With the lazy API Polars doesn't run each query line-by-line but instead processes the full query end-to-end.
 To get the most out of Polars it is important that you use the lazy API
 
-## Some benefits of Polars Lazy API (LazyDataFrame)
+## Some benefits of Polars Lazy API
 - The lazy API allows Polars to apply automatic query [optimization](https://docs.pola.rs/user-guide/lazy/optimizations/) with the query optimizer.
 - The lazy API allows you to work with larger than memory datasets using streaming.
 - The lazy API can catch shema errors before processing the data
-
-
-Note: The collect() method starts the execution and collects the result into a dataframe. Essentially, this method instructs Polars to eagerly execute the query ("collect" the results of the query).
 
 ## Using the LazyAPI
 We can use the Lazy API starting from either a file or and existing DataFrame
@@ -28,14 +35,32 @@ We can use the Lazy API starting from either a file or and existing DataFrame
 ### Using the lazy API from a file
 We can use the lazy API starting from a file by calling the files respective ```pl.scan_*``` function
 
-The ```pl.scan_*``` function is available for a number of file types including CSV, IPC, Parquet and JSON.
+The ```pl.scan_*``` function is available for a number of file types including CSV, JSON, Parquet etc.
 
 ### Using the lazy API from a DataFrame
-An alternative way to access the lazy API is to call .lazy on a DataFrame that has already been created in memory e.g.
+An alternative way to access the lazy API is to call ".lazy()" method on a DataFrame that has already been created in memory e.g.
 ```python
-q3 = pl.DataFrame({"foo": ["a", "b", "c"], "bar": [0, 1, 2]}).lazy()
+q3 = pl.DataFrame({
+    "foo": ["a", "b", "c"],
+    "bar": [0, 1, 2]
+}).lazy()
 ```
+### Lazy API query execution
+**Note**: The collect() method starts the execution and collects the result into a dataframe. Essentially, this method instructs Polars to eagerly execute the query.
 
+Also note to enable [streaming mode](https://docs.pola.rs/user-guide/concepts/streaming/ "Instead of processing the data all-at-once Polars can execute the query in batches allowing you to process datasets that are larger-than-memory.") when dealing with larger-than-memory datasets by passing the ```streaming=True``` argument to the ```collect()``` method:
+
+```python
+q1 = (
+    pl.read_csv("https://j.mp/iriscsv")
+    .lazy()
+    .filter(pl.col("sepal_length") > 5)
+    .group_by("species")
+    .agg(pl.col("sepal_width").mean())
+)
+df = q1.collect(streaming=True)
+print(df)
+```
 
 ## Installation
 ```python
@@ -46,6 +71,8 @@ Or in Jupyter Notebook
 !pip install polars
 ```
 
+### **For Interactivity please switch to the Google Colab hosted [Jupyter Notebook](https://colab.research.google.com/drive/13n5BMbPA2OCDFiDZANf3hlwDG6maKhYK)**
+
 ## Check version
 ```python
 import polars as pl
@@ -54,9 +81,8 @@ print(pl.__version__)
 
 ## Reading and writing data (CSV):
 ```python
-import polars as pl
 # read from file
-df = pl.read_csv('data.csv', try_parse_dates=True)
+df = pl.read_csv('data.csv')
 print(df)
 
 # Or from a BytesIO object
@@ -70,19 +96,18 @@ data = BytesIO(
     b"9,Olanrewaju,Data,DE,31\n10,Rshomide4,Data,DE,31\n"
 )
 
-df = pl.read_csv(data, try_parse_dates=True)
+df = pl.read_csv(data)
 print(df)
 
 # write to CSV file
 df.write_csv('output.csv')
-
 ```
 
 ## Reading data (Parquet):
 ```python
 loan_risk = pl.scan_parquet("https://tinyurl.com/5eduaare")  # Lazily read remote parquet file
 print(loan_risk.collect().shape)  # print shapes
-print(loan_risk..collect().head(10))  # print the first 10 rows
+print(loan_risk.collect().head(10))  # print the first 10 rows
 ```
 
 ## Filtering
@@ -154,10 +179,46 @@ print(joined_df)
 ```python
 # Create an SQLContext from the "loan_risk" LazyFrame.
 result = pl.SQLContext(frame=loan_risk).execute(
-    "SELECT funded_amnt FROM frame WHERE funded_amnt >= 3000"
+    "SELECT * FROM frame WHERE funded_amnt >= 3000"
 ).collect()
 
 print(result)
+```
+```python
+# It also supports CTEs, joins, aggregations etc.
+
+sql2 = pl.SQLContext(frame=loan_risk).execute(
+    """with tfa as ( -- total funded amount by state
+          SELECT
+              addr_state,
+              CAST(SUM(funded_amnt) AS float) as total_funded_amnt
+          FROM frame
+          GROUP BY addr_state
+      ),
+
+      tpa as ( -- total paid amount by state
+          SELECT
+              addr_state,
+              CAST(SUM(paid_amnt) AS float) as total_paid_amnt
+          FROM frame
+          GROUP BY addr_state
+      )
+
+    SELECT DISTINCT
+        f.addr_state,
+        tfa.total_funded_amnt,
+        tpa.total_paid_amnt,
+        tfa.total_funded_amnt - tpa.total_paid_amnt as total_outstanding
+    FROM frame f
+    JOIN
+        tfa on f.addr_state = tfa.addr_state
+    JOIN
+        tpa on f.addr_state = tpa.addr_state
+    ORDER BY total_outstanding DESC;
+    """
+).collect()
+
+print(sql2)
 ```
 
 ## Benchmarks
